@@ -1,0 +1,67 @@
+/* Global animations used across the app */
+
+@keyframes bellPulse {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(251, 191, 36, 0.8);
+    transform: scale(1.15);
+  }
+}
+
+@keyframes dropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 4px 30px rgba(251, 191, 36, 0.15); }
+  50%       { box-shadow: 0 4px 40px rgba(251, 191, 36, 0.35); }
+}
+
+/* Toast: slides down from header area */
+@keyframes toastSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Toast: progress bar shrinks from 100% → 0% over 3s */
+@keyframes toastProgress {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+/* Notification panel scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #1f2937; }
+::-webkit-scrollbar-thumb { background: #4da6ff; border-radius: 4px; }
+
+/* Ensure fixed top header (65px) does not hide top details of sections when scrolled or targeted */
+html {
+  scroll-padding-top: 85px;
+}
+
+[id], section, .section, .header-section, .customer-section, .payment-section, .discount-section {
+  scroll-margin-top: 85px;
+}
+
+
