@@ -36,6 +36,7 @@ import {
   FaChartLine,
   FaHeadset,
   FaCogs,
+  FaLaptopCode,
 } from "react-icons/fa";
 
 const Sidebar = ({ isOpen }) => {
@@ -412,10 +413,14 @@ const Sidebar = ({ isOpen }) => {
               <FaHeadset style={styles.icon} />
               <span style={styles.text}>Raise a Ticket</span>
             </NavLink>
+            <NavLink to="/it-developer" style={getLinkStyle}>
+              <FaLaptopCode style={styles.icon} />
+              <span style={styles.text}>IT Support Engineer Portal</span>
+            </NavLink>
             {(userType?.toLowerCase() === 'admin' || user?.email === 'admin@m3cars.com') && (
               <NavLink to="/it-support-admin" style={getLinkStyle}>
                 <FaCogs style={styles.icon} />
-                <span style={styles.text}>Manage Tickets</span>
+                <span style={styles.text}>Manage Tickets & Engineers</span>
               </NavLink>
             )}
           </>

@@ -77,6 +77,64 @@ def create_app():
         except Exception as e:
             print(f"Migration check info: {e}")
 
+        # IT Support Auto-migration & Initial IT Support Engineer Seeding
+        try:
+            from sqlalchemy import inspect, text
+            from app.models.it_support import ITDeveloper
+            
+            # Ensure it_developers table exists
+            ITDeveloper.__table__.create(db.engine, checkfirst=True)
+
+            inspector = inspect(db.engine)
+            if 'it_support_tickets' in inspector.get_table_names():
+                ticket_cols = [c['name'] for c in inspector.get_columns('it_support_tickets')]
+                ticket_new_cols = [
+                    ('progress_percentage', 'INT DEFAULT 0'),
+                    ('assigned_developer_id', 'INT NULL'),
+                    ('developer_notes', 'TEXT NULL'),
+                    ('whatsapp_message', 'TEXT NULL'),
+                    ('whatsapp_sent_at', 'DATETIME NULL'),
+                ]
+                with db.engine.begin() as conn:
+                    for col_name, col_type in ticket_new_cols:
+                        if col_name not in ticket_cols:
+                            conn.execute(text(f"ALTER TABLE it_support_tickets ADD COLUMN {col_name} {col_type}"))
+                            print(f"[+] Added column {col_name} to it_support_tickets table")
+
+            if 'it_support_work_logs' in inspector.get_table_names():
+                work_log_cols = [c['name'] for c in inspector.get_columns('it_support_work_logs')]
+                if 'progress_percentage' not in work_log_cols:
+                    with db.engine.begin() as conn:
+                        conn.execute(text("ALTER TABLE it_support_work_logs ADD COLUMN progress_percentage INT DEFAULT 0"))
+                        print("[+] Added column progress_percentage to it_support_work_logs table")
+
+            # Pre-seed initial IT Support Engineers: Muthu, Naramatha, Kishore, Abishika, Babu, Keerthi
+            INITIAL_DEVS = [
+                {"name": "Muthu", "phone": "919876543210", "role": "Lead IT Support Engineer", "specialization": "Full Stack & Core Architecture", "avatar_color": "#3b82f6"},
+                {"name": "Naramatha", "phone": "919812345678", "role": "Senior IT Support Engineer", "specialization": "Frontend & Web Applications", "avatar_color": "#ec4899"},
+                {"name": "Kishore", "phone": "919823456789", "role": "DevOps & Systems Engineer", "specialization": "Infrastructure & Cloud Systems", "avatar_color": "#10b981"},
+                {"name": "Abishika", "phone": "919834567890", "role": "IT Support Engineer", "specialization": "Backend APIs & Microservices", "avatar_color": "#8b5cf6"},
+                {"name": "Babu", "phone": "919845678901", "role": "Network & Hardware Engineer", "specialization": "Network Security & Hardware Support", "avatar_color": "#f59e0b"},
+                {"name": "Keerthi", "phone": "919856789012", "role": "Database & IT Support Engineer", "specialization": "Database Admin & Data Services", "avatar_color": "#06b6d4"},
+            ]
+            for dev_data in INITIAL_DEVS:
+                existing = ITDeveloper.query.filter_by(name=dev_data['name']).first()
+                if not existing:
+                    dev = ITDeveloper(
+                        name=dev_data['name'],
+                        phone=dev_data['phone'],
+                        email=f"{dev_data['name'].lower()}@avva.com",
+                        role=dev_data['role'],
+                        specialization=dev_data['specialization'],
+                        status='Active',
+                        avatar_color=dev_data['avatar_color']
+                    )
+                    db.session.add(dev)
+            db.session.commit()
+            print("[+] IT Support tables & initial IT Support Engineers verified successfully")
+        except Exception as e:
+            print(f"IT Support Migration / Seeding info: {e}")
+
     # Register Blueprints
     from app.routes.login_routes import login_bp
     from app.routes.product_routes import product_bp

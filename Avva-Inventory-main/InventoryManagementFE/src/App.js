@@ -38,6 +38,7 @@ import Warranty from "./components/Warranty";
 import PaymentTracking from "./components/PaymentTracking";
 import ITSupport from "./components/ITSupport";
 import ITSupportAdmin from "./components/ITSupportAdmin";
+import ITDeveloperModule from "./components/ITDeveloperModule";
 
 function Layout() {
   const location = useLocation();
@@ -102,6 +103,8 @@ function Layout() {
           <Route path="/paymenttracking" element={<PaymentTracking />} />
           <Route path="/it-support" element={<ITSupport />} />
           <Route path="/it-support-admin" element={<ITSupportAdmin />} />
+          <Route path="/it-developer" element={<ITDeveloperModule />} />
+          <Route path="/it-support-developer" element={<ITDeveloperModule />} />
         </Routes>
       </div>
     </>

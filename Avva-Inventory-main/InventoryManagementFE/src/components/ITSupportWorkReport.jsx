@@ -271,7 +271,7 @@ const ITSupportWorkReport = () => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "14px", marginBottom: "22px" }}>
         {[
           { label: "Total Work Logs", value: total, color: "#818cf8", icon: <FaClipboardList /> },
-          { label: "Developers Active", value: devSummary.length, color: "#4da6ff", icon: <FaUserTie /> },
+          { label: "IT Support Engineers Active", value: devSummary.length, color: "#4da6ff", icon: <FaUserTie /> },
           { label: "Filtered Results", value: total, color: "#22c55e", icon: <FaChartBar /> },
         ].map((c, i) => (
           <div key={i} style={{
@@ -294,7 +294,7 @@ const ITSupportWorkReport = () => {
     return (
       <div style={{ ...s.card, padding: "20px", marginBottom: "22px" }}>
         <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "16px" }}>
-          Developer Activity Summary
+          IT Support Engineer Activity Summary
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {devSummary.map((d, i) => {
@@ -358,7 +358,7 @@ const ITSupportWorkReport = () => {
 
             {/* Editable fields */}
             <div>
-              <label style={s.labelStyle}>Developer Name</label>
+              <label style={s.labelStyle}>IT Support Engineer Name</label>
               <input style={s.inputStyle} value={editing?.developer_name || ""} onChange={e => setEditing(p => ({ ...p, developer_name: e.target.value }))} />
             </div>
 
@@ -458,9 +458,9 @@ const ITSupportWorkReport = () => {
         <div>
           <div style={s.title}>
             <FaWrench style={{ fontSize: "22px", color: "#818cf8" }} />
-            Developer Work Report
+            IT Support Engineer Work Report
           </div>
-          <div style={s.sub}>Complete log of work performed by each IT support developer</div>
+          <div style={s.sub}>Complete log of work performed by each IT Support Engineer</div>
         </div>
         <button onClick={fetchReport} style={{ background: "rgba(77,166,255,0.1)", border: "1px solid rgba(77,166,255,0.2)", borderRadius: "10px", padding: "9px 14px", color: "#4da6ff", cursor: "pointer", fontSize: "13px", fontWeight: "600", display: "flex", alignItems: "center", gap: "6px" }}>
           <FaSyncAlt /> Refresh
@@ -475,7 +475,7 @@ const ITSupportWorkReport = () => {
         <div style={{ position: "relative", flex: 1, minWidth: "180px" }}>
           <FaSearch style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)", color: "#6b7280", fontSize: "13px", pointerEvents: "none" }} />
           <input style={{ ...s.filterInput, paddingLeft: "34px", width: "100%", boxSizing: "border-box" }}
-            placeholder="Search developer name..." value={fDev}
+            placeholder="Search IT Support Engineer name..." value={fDev}
             onChange={e => { setFDev(e.target.value); setPage(1); }} />
         </div>
         <input style={s.filterInput} placeholder="Ticket #" value={fTicket}
@@ -522,7 +522,7 @@ const ITSupportWorkReport = () => {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["#","Developer","Ticket / Client","Support Issue","Work Start","Work End","Duration","Actions Taken","Status","Resolution"].map(h => (
+                    {["#","IT Support Engineer","Ticket / Client","Support Issue","Work Start","Work End","Duration","Actions Taken","Status","Resolution"].map(h => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>

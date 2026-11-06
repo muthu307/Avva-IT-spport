@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 from urllib.parse import quote
 from app import db
-from app.models.it_support import ITSupportTicket, ITSupportWorkLog
+from app.models.it_support import ITSupportTicket, ITSupportWorkLog, ITDeveloper
 
 it_support_bp = Blueprint('it_support_bp', __name__)
 
@@ -54,85 +54,130 @@ WHATSAPP_GROUP_INVITE = "https://chat.whatsapp.com/G660UKTsAmyIH5ZwRigP7E"
 FRONTEND_BASE_URL = "http://localhost:3000"
 
 
-def build_whatsapp_message(ticket: ITSupportTicket) -> str:
-    """Construct the pre-filled WhatsApp message for the IT support group (new ticket raised)."""
-    created_local = ticket.created_at
-    date_str = created_local.strftime('%d %b %Y') if created_local else 'N/A'
-    time_str = created_local.strftime('%I:%M %p') if created_local else 'N/A'
-    ticket_link = f"{FRONTEND_BASE_URL}/it-support-admin?ticket={ticket.ticket_number}"
+def resolve_frontend_base_url(base_url: str = None) -> str:
+    """Resolve the frontend base URL from param, request headers, or default."""
+    if base_url and base_url.strip():
+        return base_url.strip().rstrip('/')
+    if request:
+        origin = request.headers.get('Origin') or request.headers.get('Referer')
+        if origin:
+            from urllib.parse import urlparse
+            parsed = urlparse(origin)
+            return f"{parsed.scheme}://{parsed.netloc}".rstrip('/')
+    return FRONTEND_BASE_URL.rstrip('/')
+
+
+def build_whatsapp_message(ticket: ITSupportTicket, base_url: str = None) -> str:
+    """
+    Construct the pre-filled WhatsApp notification message containing:
+      - Client Name
+      - Ticket Number
+      - Request Details (Subject, Category, Priority, Contact, Email, Company, Description)
+      - Date
+      - Time
+      - Direct Ticket URL
+    """
+    created_local = ticket.created_at or datetime.utcnow()
+    date_str = created_local.strftime('%d %b %Y')
+    time_str = created_local.strftime('%I:%M %p')
+
+    fe_url = resolve_frontend_base_url(base_url)
+    ticket_link = f"{fe_url}/it-support-admin?ticket={ticket.ticket_number}"
+
+    company_part = f"🏢 *Company:* {ticket.company_name}\n" if ticket.company_name else ""
+    contact_part = f"📞 *Contact:* {ticket.contact_number}\n" if ticket.contact_number else ""
 
     message = (
-        f"🔔 *New IT Support Ticket Raised*\n\n"
-        f"🎫 *Ticket No:* {ticket.ticket_number}\n"
-        f"👤 *Client:* {ticket.client_name}\n"
-        f"📧 *Email:* {ticket.client_email}\n"
-        f"📞 *Contact:* {ticket.contact_number or 'N/A'}\n"
-        f"📂 *Category:* {ticket.category}\n"
-        f"🚨 *Priority:* {ticket.priority}\n"
-        f"📝 *Subject:* {ticket.subject}\n"
+        f"🔔 *New IT Support Ticket Notification*\n\n"
+        f"👤 *Client Name:* {ticket.client_name}\n"
+        f"🎫 *Ticket Number:* {ticket.ticket_number}\n"
         f"📅 *Date:* {date_str}\n"
         f"⏰ *Time:* {time_str} UTC\n\n"
-        f"📋 *Details:*\n{ticket.description}\n\n"
-        f"🔗 *View Ticket:* {ticket_link}\n\n"
-        f"Please action this ticket at your earliest convenience."
+        f"📋 *Request Details:*\n"
+        f"• *Subject:* {ticket.subject}\n"
+        f"• *Category:* {ticket.category}\n"
+        f"• *Priority:* {ticket.priority}\n"
+        f"• *Email:* {ticket.client_email}\n"
+        + contact_part
+        + company_part
+        + f"• *Description:*\n{ticket.description}\n\n"
+        f"🔗 *Direct Ticket URL:*\n{ticket_link}\n\n"
+        f"⚡ *IT Support WhatsApp Group:* Please review and action this ticket."
     )
     return message
 
 
-def build_assignment_whatsapp_message(ticket: ITSupportTicket) -> str:
+def build_assignment_whatsapp_message(ticket: ITSupportTicket, base_url: str = None) -> str:
     """Construct the WhatsApp notification message for ticket assignment."""
-    # Ticket creation timestamps
-    created_local = ticket.created_at
-    ticket_date_str = created_local.strftime('%d %b %Y') if created_local else 'N/A'
-    ticket_time_str = created_local.strftime('%I:%M %p') if created_local else 'N/A'
+    created_local = ticket.created_at or datetime.utcnow()
+    ticket_date_str = created_local.strftime('%d %b %Y')
+    ticket_time_str = created_local.strftime('%I:%M %p')
 
-    # Assignment timestamps
-    assigned_local = ticket.assigned_at
-    assign_date_str = assigned_local.strftime('%d %b %Y') if assigned_local else 'N/A'
-    assign_time_str = assigned_local.strftime('%I:%M %p') if assigned_local else 'N/A'
+    assigned_local = ticket.assigned_at or datetime.utcnow()
+    assign_date_str = assigned_local.strftime('%d %b %Y')
+    assign_time_str = assigned_local.strftime('%I:%M %p')
 
-    ticket_link = f"{FRONTEND_BASE_URL}/it-support-admin?ticket={ticket.ticket_number}"
+    fe_url = resolve_frontend_base_url(base_url)
+    ticket_link = f"{fe_url}/it-support-admin?ticket={ticket.ticket_number}"
+
+    company_part = f"• *Company:* {ticket.company_name}\n" if ticket.company_name else ""
+    contact_part = f"• *Contact:* {ticket.contact_number}\n" if ticket.contact_number else ""
 
     message = (
         f"📌 *IT Support Ticket Assigned*\n\n"
-        f"🎫 *Ticket No:* {ticket.ticket_number}\n"
+        f"🎫 *Ticket / Token Number:* {ticket.ticket_number}\n"
         f"👤 *Client Name:* {ticket.client_name}\n"
         f"📝 *Support Request:* {ticket.subject}\n\n"
-        f"📋 *Request Details:*\n{ticket.description}\n\n"
+        f"📋 *Support Request Details:*\n"
+        f"• *Category:* {ticket.category}\n"
+        f"• *Priority:* {ticket.priority}\n"
+        f"• *Email:* {ticket.client_email}\n"
+        + contact_part
+        + company_part
+        + f"• *Description:*\n{ticket.description}\n\n"
         f"─────────────────────\n"
-        f"👨‍💻 *Assigned Developer:* {ticket.assigned_to}\n"
+        f"👨‍💻 *Assigned IT Support Engineer:* {ticket.assigned_to}\n"
         f"🏷️ *Assigned By:* {ticket.assigned_by or 'Admin'}\n"
         f"📅 *Assignment Date:* {assign_date_str}\n"
         f"⏰ *Assignment Time:* {assign_time_str} UTC\n"
         f"─────────────────────\n\n"
-        f"🗂️ *Ticket Details:*\n"
-        f"   📂 Category: {ticket.category}\n"
-        f"   🚨 Priority: {ticket.priority}\n"
-        f"   📅 Raised On: {ticket_date_str} at {ticket_time_str} UTC\n\n"
-        f"🔗 *Direct Ticket Link:* {ticket_link}\n\n"
-        f"⚡ {ticket.assigned_to}, please review and action this ticket promptly."
+        f"🔗 *Direct Ticket Link:*\n{ticket_link}\n\n"
+        f"⚡ *IT Support WhatsApp Group:* Ticket assigned to {ticket.assigned_to}. Please review and action this ticket promptly."
     )
     return message
 
 
-def build_whatsapp_url(ticket: ITSupportTicket) -> str:
+def build_whatsapp_url(ticket: ITSupportTicket, base_url: str = None) -> str:
     """Return a WhatsApp Web URL with a pre-filled new-ticket message."""
-    message = build_whatsapp_message(ticket)
+    message = build_whatsapp_message(ticket, base_url=base_url)
     encoded = quote(message)
     return f"https://web.whatsapp.com/send?text={encoded}"
 
 
-def build_assignment_whatsapp_url(ticket: ITSupportTicket, developer_phone: str = None) -> str:
+def build_whatsapp_app_url(ticket: ITSupportTicket, base_url: str = None) -> str:
+    """Return a universal/app WhatsApp URL with a pre-filled message."""
+    message = build_whatsapp_message(ticket, base_url=base_url)
+    encoded = quote(message)
+    return f"https://api.whatsapp.com/send?text={encoded}"
+
+
+def build_whatsapp_desktop_url(ticket: ITSupportTicket, base_url: str = None) -> str:
+    """Return a direct whatsapp:// protocol URL for installed WhatsApp Desktop."""
+    message = build_whatsapp_message(ticket, base_url=base_url)
+    encoded = quote(message)
+    return f"whatsapp://send?text={encoded}"
+
+
+def build_assignment_whatsapp_url(ticket: ITSupportTicket, developer_phone: str = None, base_url: str = None) -> str:
     """
     Return a WhatsApp URL for the assignment notification.
     If developer_phone is provided, opens a direct chat to the developer.
     Otherwise returns a sendable group message URL.
     """
-    message = build_assignment_whatsapp_message(ticket)
+    message = build_assignment_whatsapp_message(ticket, base_url=base_url)
     encoded = quote(message)
 
     if developer_phone:
-        # Direct WhatsApp message to the developer
         phone_clean = developer_phone.replace('+', '').replace(' ', '').replace('-', '')
         return f"https://wa.me/{phone_clean}?text={encoded}"
     else:
@@ -140,12 +185,223 @@ def build_assignment_whatsapp_url(ticket: ITSupportTicket, developer_phone: str 
 
 
 # ─────────────────────────────────────────────
-# GET /api/it-support/team-members — Predefined team list
+# GET /api/it-support/team-members — Team list
 # ─────────────────────────────────────────────
 @it_support_bp.route('/it-support/team-members', methods=['GET'])
 def get_team_members():
-    """Return the predefined list of IT support team members."""
+    """Return the list of IT support developers / team members."""
+    devs = ITDeveloper.query.filter_by(status='Active').order_by(ITDeveloper.name.asc()).all()
+    if devs:
+        return jsonify({
+            'team_members': [
+                {
+                    'id': d.id,
+                    'name': d.name,
+                    'phone': d.phone or '',
+                    'role': d.role or 'IT Support Engineer',
+                    'specialization': d.specialization or '',
+                    'email': d.email or '',
+                    'avatar_color': d.avatar_color or '#3b82f6',
+                    'status': d.status
+                }
+                for d in devs
+            ]
+        }), 200
+
     return jsonify({'team_members': IT_TEAM_MEMBERS}), 200
+
+
+# ─────────────────────────────────────────────
+# IT SUPPORT ENGINEER MANAGEMENT (ADMIN)
+# ─────────────────────────────────────────────
+
+@it_support_bp.route('/it-support/developers', methods=['GET'])
+def get_developers():
+    """List all IT Support Engineers with their ticket workloads and completion stats."""
+    developers = ITDeveloper.query.order_by(ITDeveloper.name.asc()).all()
+    all_tickets = ITSupportTicket.query.all()
+
+    # Precompute metrics for each IT Support Engineer
+    ticket_map = {}
+    for t in all_tickets:
+        key = t.assigned_developer_id if t.assigned_developer_id else t.assigned_to
+        if not key:
+            continue
+        ticket_map.setdefault(key, []).append(t)
+
+    result = []
+    for d in developers:
+        dev_tickets = ticket_map.get(d.id, []) or ticket_map.get(d.name, [])
+        total_assigned = len(dev_tickets)
+        in_progress = sum(1 for t in dev_tickets if t.status == 'In Progress')
+        open_count = sum(1 for t in dev_tickets if t.status == 'Open')
+        resolved_count = sum(1 for t in dev_tickets if t.status in ('Resolved', 'Closed'))
+        
+        # Calculate average progress
+        if total_assigned > 0:
+            avg_progress = round(sum(t.progress_percentage or 0 for t in dev_tickets) / total_assigned, 1)
+        else:
+            avg_progress = 0
+
+        dev_data = d.to_dict()
+        dev_data.update({
+            'total_assigned': total_assigned,
+            'in_progress': in_progress,
+            'open_count': open_count,
+            'resolved_count': resolved_count,
+            'avg_progress': avg_progress,
+        })
+        result.append(dev_data)
+
+    return jsonify({'developers': result, 'total': len(result)}), 200
+
+
+@it_support_bp.route('/it-support/developers', methods=['POST'])
+def create_developer():
+    """Admin adds a new IT Support Engineer to the team."""
+    data = request.get_json()
+    if not data or not data.get('name', '').strip():
+        return jsonify({'error': 'IT Support Engineer name is required'}), 400
+
+    name = data['name'].strip()
+    existing = ITDeveloper.query.filter(ITDeveloper.name.ilike(name)).first()
+    if existing:
+        return jsonify({'error': f"IT Support Engineer '{name}' already exists"}), 409
+
+    dev = ITDeveloper(
+        name=name,
+        phone=data.get('phone', '').strip(),
+        email=data.get('email', '').strip() or f"{name.lower().replace(' ', '')}@avva.com",
+        role=data.get('role', 'IT Support Engineer').strip() or 'IT Support Engineer',
+        specialization=data.get('specialization', 'Full Stack & IT Support').strip(),
+        status=data.get('status', 'Active').strip(),
+        avatar_color=data.get('avatar_color', '#3b82f6'),
+    )
+    db.session.add(dev)
+    db.session.commit()
+
+    return jsonify({'message': f"IT Support Engineer '{name}' added successfully", 'developer': dev.to_dict()}), 201
+
+
+@it_support_bp.route('/it-support/developers/<int:dev_id>', methods=['PUT'])
+def update_developer(dev_id):
+    """Admin updates IT Support Engineer profile details."""
+    dev = ITDeveloper.query.get_or_404(dev_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    if 'name' in data and data['name'].strip():
+        new_name = data['name'].strip()
+        existing = ITDeveloper.query.filter(ITDeveloper.name.ilike(new_name), ITDeveloper.id != dev_id).first()
+        if existing:
+            return jsonify({'error': f"Another IT Support Engineer named '{new_name}' already exists"}), 409
+        dev.name = new_name
+
+    if 'phone' in data:
+        dev.phone = data['phone'].strip()
+    if 'email' in data:
+        dev.email = data['email'].strip()
+    if 'role' in data:
+        dev.role = data['role'].strip()
+    if 'specialization' in data:
+        dev.specialization = data['specialization'].strip()
+    if 'status' in data:
+        dev.status = data['status'].strip()
+    if 'avatar_color' in data:
+        dev.avatar_color = data['avatar_color'].strip()
+
+    dev.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({'message': 'IT Support Engineer updated', 'developer': dev.to_dict()}), 200
+
+
+@it_support_bp.route('/it-support/developers/<int:dev_id>', methods=['DELETE'])
+def delete_developer(dev_id):
+    """Admin removes or deactivates an IT Support Engineer."""
+    dev = ITDeveloper.query.get_or_404(dev_id)
+    name = dev.name
+    # Unassign any active tickets
+    ITSupportTicket.query.filter_by(assigned_developer_id=dev.id).update({
+        'assigned_developer_id': None
+    })
+    db.session.delete(dev)
+    db.session.commit()
+    return jsonify({'message': f"IT Support Engineer '{name}' removed successfully"}), 200
+
+
+@it_support_bp.route('/it-support/developers/overview', methods=['GET'])
+def get_developers_overview():
+    """
+    Comprehensive IT Support Engineer Workload & Progress Overview for Admin Dashboard.
+    Provides detailed ticket progress, workload status, and performance metrics.
+    """
+    developers = ITDeveloper.query.order_by(ITDeveloper.name.asc()).all()
+    all_tickets = ITSupportTicket.query.order_by(ITSupportTicket.created_at.desc()).all()
+
+    ticket_map = {}
+    for t in all_tickets:
+        key = t.assigned_developer_id if t.assigned_developer_id else t.assigned_to
+        if key:
+            ticket_map.setdefault(key, []).append(t)
+
+    overview = []
+    total_assigned_tickets = 0
+    total_progress_sum = 0
+
+    for d in developers:
+        dev_tickets = ticket_map.get(d.id, []) or ticket_map.get(d.name, [])
+        active_tickets = [t for t in dev_tickets if t.status in ('Open', 'In Progress')]
+        resolved_tickets = [t for t in dev_tickets if t.status in ('Resolved', 'Closed')]
+        
+        avg_progress = (
+            round(sum(t.progress_percentage or 0 for t in dev_tickets) / len(dev_tickets), 1)
+            if dev_tickets else 0
+        )
+
+        total_assigned_tickets += len(dev_tickets)
+        total_progress_sum += sum(t.progress_percentage or 0 for t in dev_tickets)
+
+        overview.append({
+            'developer': d.to_dict(),
+            'total_assigned': len(dev_tickets),
+            'active_count': len(active_tickets),
+            'resolved_count': len(resolved_tickets),
+            'avg_progress': avg_progress,
+            'tickets': [
+                {
+                    'id': t.id,
+                    'ticket_number': t.ticket_number,
+                    'client_name': t.client_name,
+                    'category': t.category,
+                    'priority': t.priority,
+                    'subject': t.subject,
+                    'status': t.status,
+                    'progress_percentage': t.progress_percentage or 0,
+                    'developer_notes': t.developer_notes,
+                    'assigned_at': t.assigned_at.isoformat() if t.assigned_at else None,
+                    'updated_at': t.updated_at.isoformat() if t.updated_at else None,
+                }
+                for t in dev_tickets
+            ]
+        })
+
+    overall_avg_progress = (
+        round(total_progress_sum / total_assigned_tickets, 1)
+        if total_assigned_tickets > 0 else 0
+    )
+    unassigned_count = ITSupportTicket.query.filter(
+        db.or_(ITSupportTicket.assigned_to.is_(None), ITSupportTicket.assigned_to == '')
+    ).count()
+
+    return jsonify({
+        'overview': overview,
+        'overall_avg_progress': overall_avg_progress,
+        'total_assigned': total_assigned_tickets,
+        'unassigned_count': unassigned_count,
+        'total_developers': len(developers),
+    }), 200
 
 
 # ─────────────────────────────────────────────
@@ -175,6 +431,7 @@ def create_ticket():
         subject=data['subject'].strip(),
         description=data['description'].strip(),
         status='Open',
+        progress_percentage=0,
         whatsapp_notified=False,
         assignment_whatsapp_sent=False,
     )
@@ -182,15 +439,26 @@ def create_ticket():
     db.session.add(ticket)
     db.session.commit()
 
-    # Build WhatsApp notification URL (new ticket alert)
-    whatsapp_url = build_whatsapp_url(ticket)
-    ticket.whatsapp_notified = True
+    # Pre-fill WhatsApp notification message and save with ticket details
+    base_url = data.get('base_url')
+    whatsapp_msg = build_whatsapp_message(ticket, base_url=base_url)
+    ticket.whatsapp_message = whatsapp_msg
+    ticket.whatsapp_notified = False
     db.session.commit()
+
+    whatsapp_web_url = build_whatsapp_url(ticket, base_url=base_url)
+    whatsapp_app_url = build_whatsapp_app_url(ticket, base_url=base_url)
+    whatsapp_desktop_url = build_whatsapp_desktop_url(ticket, base_url=base_url)
 
     return jsonify({
         'message': 'Ticket raised successfully',
         'ticket': ticket.to_dict(),
-        'whatsapp_url': whatsapp_url,
+        'whatsapp_message': whatsapp_msg,
+        'whatsapp_url': whatsapp_web_url,
+        'whatsapp_web_url': whatsapp_web_url,
+        'whatsapp_app_url': whatsapp_app_url,
+        'whatsapp_desktop_url': whatsapp_desktop_url,
+        'whatsapp_group_invite': WHATSAPP_GROUP_INVITE,
     }), 201
 
 
@@ -202,6 +470,7 @@ def get_all_tickets():
     status_filter = request.args.get('status')
     priority_filter = request.args.get('priority')
     category_filter = request.args.get('category')
+    assigned_to_filter = request.args.get('assigned_to')
     search = request.args.get('search', '').strip()
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
@@ -214,6 +483,8 @@ def get_all_tickets():
         query = query.filter(ITSupportTicket.priority == priority_filter)
     if category_filter:
         query = query.filter(ITSupportTicket.category == category_filter)
+    if assigned_to_filter:
+        query = query.filter(ITSupportTicket.assigned_to.ilike(f'%{assigned_to_filter}%'))
     if search:
         like = f'%{search}%'
         query = query.filter(
@@ -265,6 +536,67 @@ def get_ticket(ticket_id):
 
 
 # ─────────────────────────────────────────────
+# GET /api/it-support/tickets/by-number/<ticket_number>
+# ─────────────────────────────────────────────
+@it_support_bp.route('/it-support/tickets/by-number/<ticket_number>', methods=['GET'])
+def get_ticket_by_number(ticket_number):
+    ticket = ITSupportTicket.query.filter_by(ticket_number=ticket_number).first()
+    if not ticket:
+        return jsonify({'error': f"Ticket '{ticket_number}' not found"}), 404
+    return jsonify({'ticket': ticket.to_dict()}), 200
+
+
+# ─────────────────────────────────────────────
+# GET /api/it-support/tickets/<id>/whatsapp-notification
+# Generate/retrieve pre-filled notification message & WhatsApp Web/App URLs
+# ─────────────────────────────────────────────
+@it_support_bp.route('/it-support/tickets/<int:ticket_id>/whatsapp-notification', methods=['GET'])
+def get_ticket_whatsapp_notification(ticket_id):
+    ticket = ITSupportTicket.query.get_or_404(ticket_id)
+    base_url = request.args.get('base_url')
+
+    # Construct the pre-filled message with latest details
+    message = build_whatsapp_message(ticket, base_url=base_url)
+    if not ticket.whatsapp_message:
+        ticket.whatsapp_message = message
+        db.session.commit()
+
+    whatsapp_web_url = build_whatsapp_url(ticket, base_url=base_url)
+    whatsapp_app_url = build_whatsapp_app_url(ticket, base_url=base_url)
+    whatsapp_desktop_url = build_whatsapp_desktop_url(ticket, base_url=base_url)
+
+    return jsonify({
+        'ticket_id': ticket.id,
+        'ticket_number': ticket.ticket_number,
+        'client_name': ticket.client_name,
+        'whatsapp_message': message,
+        'whatsapp_web_url': whatsapp_web_url,
+        'whatsapp_app_url': whatsapp_app_url,
+        'whatsapp_desktop_url': whatsapp_desktop_url,
+        'whatsapp_notified': ticket.whatsapp_notified,
+        'whatsapp_sent_at': ticket.whatsapp_sent_at.isoformat() if ticket.whatsapp_sent_at else None,
+        'whatsapp_group_invite': WHATSAPP_GROUP_INVITE,
+    }), 200
+
+
+# ─────────────────────────────────────────────
+# POST /api/it-support/tickets/<id>/mark-whatsapp-sent
+# Manually mark WhatsApp notification as dispatched by admin
+# ─────────────────────────────────────────────
+@it_support_bp.route('/it-support/tickets/<int:ticket_id>/mark-whatsapp-sent', methods=['POST'])
+def mark_ticket_whatsapp_sent(ticket_id):
+    ticket = ITSupportTicket.query.get_or_404(ticket_id)
+    ticket.whatsapp_notified = True
+    ticket.whatsapp_sent_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'message': f'WhatsApp notification recorded as sent for ticket {ticket.ticket_number}',
+        'ticket': ticket.to_dict(),
+    }), 200
+
+
+# ─────────────────────────────────────────────
 # PUT /api/it-support/tickets/<id> — Update ticket (admin)
 # ─────────────────────────────────────────────
 @it_support_bp.route('/it-support/tickets/<int:ticket_id>', methods=['PUT'])
@@ -278,6 +610,22 @@ def update_ticket(ticket_id):
         ticket.status = data['status']
         if data['status'] in ('Resolved', 'Closed') and not ticket.resolved_at:
             ticket.resolved_at = datetime.utcnow()
+            if ticket.progress_percentage is None or ticket.progress_percentage < 100:
+                ticket.progress_percentage = 100
+
+    if 'progress_percentage' in data:
+        try:
+            val = int(data['progress_percentage'])
+            ticket.progress_percentage = max(0, min(100, val))
+            if ticket.progress_percentage == 100 and ticket.status not in ('Resolved', 'Closed'):
+                ticket.status = 'Resolved'
+                if not ticket.resolved_at:
+                    ticket.resolved_at = datetime.utcnow()
+        except (ValueError, TypeError):
+            pass
+
+    if 'developer_notes' in data:
+        ticket.developer_notes = data['developer_notes']
 
     if 'admin_notes' in data:
         ticket.admin_notes = data['admin_notes']
@@ -296,38 +644,50 @@ def update_ticket(ticket_id):
 
 # ─────────────────────────────────────────────
 # POST /api/it-support/tickets/<id>/assign
-# Assign ticket to a predefined team member + generate WhatsApp notification
+# Assign ticket to an IT Support Engineer + record date & time + generate WhatsApp notification
 # ─────────────────────────────────────────────
 @it_support_bp.route('/it-support/tickets/<int:ticket_id>/assign', methods=['POST'])
 def assign_ticket(ticket_id):
     """
-    Assign a ticket to a specific IT team member and generate a
-    WhatsApp notification URL with full assignment details.
-
-    Expected JSON body:
-    {
-        "member_id": 1,            # ID from IT_TEAM_MEMBERS list
-        "assigned_by": "Admin",    # Who is making the assignment (optional)
-        "admin_notes": "..."       # Optional notes
-    }
+    Assign a ticket to an IT Support Engineer, record engineer name and assignment date/time,
+    and generate WhatsApp notification for the IT Support WhatsApp Group.
     """
     ticket = ITSupportTicket.query.get_or_404(ticket_id)
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No data provided'}), 400
 
-    member_id = data.get('member_id')
-    if not member_id:
-        return jsonify({'error': 'member_id is required'}), 400
+    member_id = data.get('developer_id') or data.get('member_id')
+    developer_name = data.get('developer_name')
+    base_url = data.get('base_url')
 
-    # Look up the team member from predefined list
-    member = next((m for m in IT_TEAM_MEMBERS if m['id'] == int(member_id)), None)
-    if not member:
-        return jsonify({'error': f'Team member with id {member_id} not found'}), 404
+    if not member_id and not developer_name:
+        return jsonify({'error': 'IT Support Engineer ID or name is required'}), 400
 
-    # Update ticket assignment fields
-    ticket.assigned_to = member['name']
-    ticket.assigned_to_phone = member['phone']
+    # Look up engineer in database
+    dev = None
+    if member_id:
+        try:
+            dev = ITDeveloper.query.get(int(member_id))
+        except (ValueError, TypeError):
+            pass
+    if not dev and developer_name:
+        dev = ITDeveloper.query.filter(ITDeveloper.name.ilike(developer_name.strip())).first()
+
+    if dev:
+        ticket.assigned_developer_id = dev.id
+        ticket.assigned_to = dev.name
+        ticket.assigned_to_phone = dev.phone
+        assigned_member = dev.to_dict()
+    else:
+        # Fallback to predefined list
+        member = next((m for m in IT_TEAM_MEMBERS if m['id'] == int(member_id or 0)), None)
+        if not member:
+            return jsonify({'error': 'IT Support Engineer not found'}), 404
+        ticket.assigned_to = member['name']
+        ticket.assigned_to_phone = member['phone']
+        assigned_member = member
+
     ticket.assigned_by = data.get('assigned_by', 'Admin').strip() or 'Admin'
     ticket.assigned_at = datetime.utcnow()
 
@@ -335,30 +695,271 @@ def assign_ticket(ticket_id):
     if ticket.status == 'Open':
         ticket.status = 'In Progress'
 
-    # Optionally update admin notes
+    if ticket.progress_percentage is None:
+        ticket.progress_percentage = 0
+
     if data.get('admin_notes'):
         ticket.admin_notes = data['admin_notes'].strip()
 
     ticket.updated_at = datetime.utcnow()
-    db.session.commit()
 
-    # Build the assignment WhatsApp notification URL
-    # Sends direct message to the assigned developer
-    whatsapp_url = build_assignment_whatsapp_url(ticket, developer_phone=member['phone'])
+    # Create work log entry recording the assignment
+    try:
+        assign_note_text = f"Assigned to {ticket.assigned_to} on {ticket.assigned_at.strftime('%d %b %Y at %I:%M %p UTC')} by {ticket.assigned_by}."
+        if ticket.admin_notes:
+            assign_note_text += f" Notes: {ticket.admin_notes}"
+        work_log = ITSupportWorkLog(
+            ticket_id=ticket.id,
+            ticket_number=ticket.ticket_number,
+            developer_name=ticket.assigned_to,
+            client_name=ticket.client_name,
+            support_issue=f"{ticket.subject}\n\n{ticket.description}",
+            work_start=ticket.assigned_at,
+            work_end=ticket.assigned_at,
+            actions_taken=f"Ticket assigned to IT Support Engineer {ticket.assigned_to}. {assign_note_text}",
+            progress_percentage=ticket.progress_percentage or 0,
+            status_after=ticket.status,
+            logged_by=ticket.assigned_by,
+            created_at=ticket.assigned_at
+        )
+        db.session.add(work_log)
+    except Exception as log_err:
+        print(f"Work log creation warning: {log_err}")
 
-    # Also build a group notification URL
-    group_whatsapp_url = build_assignment_whatsapp_url(ticket, developer_phone=None)
-
-    # Mark that assignment WhatsApp was generated
+    # Build the assignment WhatsApp notification message and URLs for the IT Support WhatsApp Group
+    assignment_message = build_assignment_whatsapp_message(ticket, base_url=base_url)
+    ticket.whatsapp_message = assignment_message
     ticket.assignment_whatsapp_sent = True
     db.session.commit()
 
+    encoded = quote(assignment_message)
+    group_whatsapp_web_url = f"https://web.whatsapp.com/send?text={encoded}"
+    group_whatsapp_app_url = f"https://api.whatsapp.com/send?text={encoded}"
+    group_whatsapp_desktop_url = f"whatsapp://send?text={encoded}"
+    direct_dev_whatsapp_url = build_assignment_whatsapp_url(ticket, developer_phone=ticket.assigned_to_phone, base_url=base_url)
+
     return jsonify({
-        'message': f'Ticket assigned to {member["name"]} successfully',
+        'message': f'Ticket assigned to {ticket.assigned_to} successfully',
         'ticket': ticket.to_dict(),
-        'assigned_member': member,
-        'whatsapp_url': whatsapp_url,          # Direct message to developer
-        'group_whatsapp_url': group_whatsapp_url,  # For group notification
+        'assigned_member': assigned_member,
+        'assigned_engineer_name': ticket.assigned_to,
+        'assignment_date': ticket.assigned_at.strftime('%d %b %Y'),
+        'assignment_time': ticket.assigned_at.strftime('%I:%M %p UTC'),
+        'whatsapp_message': assignment_message,
+        'whatsapp_url': direct_dev_whatsapp_url,
+        'group_whatsapp_url': group_whatsapp_web_url,
+        'group_whatsapp_web_url': group_whatsapp_web_url,
+        'group_whatsapp_app_url': group_whatsapp_app_url,
+        'group_whatsapp_desktop_url': group_whatsapp_desktop_url,
+        'whatsapp_group_invite': WHATSAPP_GROUP_INVITE,
+    }), 200
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# DEVELOPER WORKSPACE / MODULE ENDPOINTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+@it_support_bp.route('/it-support/developer/tickets', methods=['GET'])
+def get_developer_tickets():
+    """
+    Get all tickets assigned to a specific developer.
+    Filterable by developer_name or developer_id, status, and search query.
+    """
+    dev_name = request.args.get('developer_name', '').strip()
+    dev_id = request.args.get('developer_id', type=int)
+    status_filter = request.args.get('status', '').strip()
+    search = request.args.get('search', '').strip()
+
+    query = ITSupportTicket.query
+
+    if dev_id:
+        query = query.filter(
+            db.or_(
+                ITSupportTicket.assigned_developer_id == dev_id,
+                ITSupportTicket.assigned_to == dev_name if dev_name else False
+            )
+        )
+    elif dev_name:
+        query = query.filter(ITSupportTicket.assigned_to.ilike(f'%{dev_name}%'))
+    else:
+        # If neither provided, return all assigned tickets
+        query = query.filter(ITSupportTicket.assigned_to.isnot(None))
+
+    if status_filter:
+        query = query.filter(ITSupportTicket.status == status_filter)
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(
+            db.or_(
+                ITSupportTicket.ticket_number.ilike(like),
+                ITSupportTicket.client_name.ilike(like),
+                ITSupportTicket.subject.ilike(like),
+                ITSupportTicket.description.ilike(like),
+            )
+        )
+
+    # Order critical/high priority first, then updated_at
+    query = query.order_by(
+        db.case(
+            (ITSupportTicket.priority == 'Critical', 1),
+            (ITSupportTicket.priority == 'High', 2),
+            (ITSupportTicket.priority == 'Medium', 3),
+            else_=4
+        ),
+        ITSupportTicket.updated_at.desc()
+    )
+
+    tickets = query.all()
+
+    # Include work log count for each ticket
+    ticket_list = []
+    for t in tickets:
+        d = t.to_dict()
+        d['work_logs_count'] = t.work_logs.count()
+        ticket_list.append(d)
+
+    return jsonify({
+        'tickets': ticket_list,
+        'total': len(ticket_list),
+        'developer_name': dev_name,
+    }), 200
+
+
+@it_support_bp.route('/it-support/tickets/<int:ticket_id>/progress', methods=['PUT'])
+def update_ticket_progress(ticket_id):
+    """
+    Developer updates ticket work progress (percentage 0-100%, status, notes, work log).
+    """
+    ticket = ITSupportTicket.query.get_or_404(ticket_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    # 1. Update Progress Percentage
+    if 'progress_percentage' in data:
+        try:
+            val = int(data['progress_percentage'])
+            ticket.progress_percentage = max(0, min(100, val))
+        except (ValueError, TypeError):
+            return jsonify({'error': 'progress_percentage must be an integer between 0 and 100'}), 400
+
+    # 2. Update Status
+    if 'status' in data and data['status']:
+        ticket.status = data['status'].strip()
+
+    # Auto-resolve if 100% completed
+    if ticket.progress_percentage == 100:
+        if ticket.status not in ('Resolved', 'Closed'):
+            ticket.status = 'Resolved'
+        if not ticket.resolved_at:
+            ticket.resolved_at = datetime.utcnow()
+    elif ticket.status in ('Resolved', 'Closed'):
+        if ticket.progress_percentage < 100:
+            ticket.progress_percentage = 100
+        if not ticket.resolved_at:
+            ticket.resolved_at = datetime.utcnow()
+
+    # 3. Developer Notes
+    if 'developer_notes' in data:
+        ticket.developer_notes = data['developer_notes'].strip() or None
+
+    # 4. Optional: Log Work Session Action
+    work_log = None
+    if data.get('actions_taken') and data['actions_taken'].strip():
+        dev_name = data.get('developer_name') or ticket.assigned_to or 'Developer'
+        now = datetime.utcnow()
+        work_start = now
+        work_end = now
+
+        # Parse custom work date and times if provided
+        if data.get('work_start'):
+            try:
+                work_start = datetime.fromisoformat(data['work_start'].replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                pass
+        elif data.get('work_date'):
+            try:
+                w_date_str = data['work_date'].strip()
+                w_start_str = data.get('work_start_time', '').strip() or '09:00'
+                work_start = datetime.strptime(f"{w_date_str} {w_start_str}", "%Y-%m-%d %H:%M")
+            except (ValueError, AttributeError):
+                work_start = now
+
+        if data.get('work_end'):
+            try:
+                work_end = datetime.fromisoformat(data['work_end'].replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                work_end = work_start
+        elif data.get('work_date') and data.get('work_end_time'):
+            try:
+                w_date_str = data['work_date'].strip()
+                w_end_str = data['work_end_time'].strip()
+                work_end = datetime.strptime(f"{w_date_str} {w_end_str}", "%Y-%m-%d %H:%M")
+            except (ValueError, AttributeError):
+                work_end = work_start
+
+        work_log = ITSupportWorkLog(
+            ticket_id=ticket.id,
+            ticket_number=ticket.ticket_number,
+            developer_name=dev_name,
+            client_name=ticket.client_name,
+            support_issue=f"{ticket.subject}\n\n{ticket.description}",
+            work_start=work_start,
+            work_end=work_end,
+            actions_taken=data['actions_taken'].strip(),
+            progress_percentage=ticket.progress_percentage,
+            status_after=ticket.status,
+            resolution_details=data.get('resolution_details', '').strip() or None,
+            logged_by=data.get('logged_by', dev_name),
+        )
+        db.session.add(work_log)
+
+    ticket.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'message': f"Ticket progress updated to {ticket.progress_percentage}% ({ticket.status})",
+        'ticket': ticket.to_dict(),
+        'work_log': work_log.to_dict() if work_log else None,
+    }), 200
+
+
+@it_support_bp.route('/it-support/developer/stats', methods=['GET'])
+def get_developer_stats():
+    """Get metrics and workload statistics for a developer."""
+    dev_name = request.args.get('developer_name', '').strip()
+    dev_id = request.args.get('developer_id', type=int)
+
+    query = ITSupportTicket.query
+    if dev_id:
+        query = query.filter(
+            db.or_(
+                ITSupportTicket.assigned_developer_id == dev_id,
+                ITSupportTicket.assigned_to == dev_name if dev_name else False
+            )
+        )
+    elif dev_name:
+        query = query.filter(ITSupportTicket.assigned_to.ilike(f'%{dev_name}%'))
+    else:
+        return jsonify({'error': 'IT Support Engineer name or ID is required'}), 400
+
+    tickets = query.all()
+    total = len(tickets)
+    open_count = sum(1 for t in tickets if t.status == 'Open')
+    in_progress = sum(1 for t in tickets if t.status == 'In Progress')
+    resolved = sum(1 for t in tickets if t.status in ('Resolved', 'Closed'))
+    critical = sum(1 for t in tickets if t.priority == 'Critical' and t.status not in ('Resolved', 'Closed'))
+
+    avg_progress = round(sum(t.progress_percentage or 0 for t in tickets) / total, 1) if total > 0 else 0
+
+    return jsonify({
+        'total': total,
+        'open': open_count,
+        'in_progress': in_progress,
+        'resolved': resolved,
+        'critical': critical,
+        'avg_progress': avg_progress,
     }), 200
 
 
@@ -377,6 +978,19 @@ def get_stats():
     critical = ITSupportTicket.query.filter_by(priority='Critical').count()
     high = ITSupportTicket.query.filter_by(priority='High').count()
 
+    # Average progress across non-closed tickets
+    all_active = ITSupportTicket.query.filter(ITSupportTicket.status != 'Closed').all()
+    avg_progress = (
+        round(sum(t.progress_percentage or 0 for t in all_active) / len(all_active), 1)
+        if all_active else 0
+    )
+
+    unassigned_count = ITSupportTicket.query.filter(
+        db.or_(ITSupportTicket.assigned_to.is_(None), ITSupportTicket.assigned_to == '')
+    ).count()
+
+    total_developers = ITDeveloper.query.filter_by(status='Active').count()
+
     return jsonify({
         'total': total,
         'open': open_count,
@@ -385,6 +999,9 @@ def get_stats():
         'closed': closed,
         'critical': critical,
         'high': high,
+        'avg_progress': avg_progress,
+        'unassigned': unassigned_count,
+        'total_developers': total_developers,
     }), 200
 
 

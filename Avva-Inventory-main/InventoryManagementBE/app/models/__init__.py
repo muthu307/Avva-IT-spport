@@ -11,7 +11,8 @@ from app.models.supplier import Supplier, Item
 from app.models.usertype import UserType
 from app.models.enquiry import Enquiry
 from app.models.salary import SalaryStructure, Payroll
-from app.models.it_support import ITSupportTicket, ITSupportWorkLog
+from app.models.current_company import Company
+from app.models.it_support import ITSupportTicket, ITSupportWorkLog, ITDeveloper
 
 __all__ = [
     'Attendance',
@@ -21,6 +22,7 @@ __all__ = [
     'DiscountRange',  
     'DiscountLog',    
     'Employee',
+    'Company',
     'Invoice',
     'InvoiceItem',
     'login',
@@ -37,4 +39,5 @@ __all__ = [
     'Payroll',
     'ITSupportTicket',
     'ITSupportWorkLog',
+    'ITDeveloper',
 ]

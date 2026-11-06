@@ -95,7 +95,10 @@ const ITSupport = () => {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      const res = await api.post("/it-support/tickets", form);
+      const res = await api.post("/it-support/tickets", {
+        ...form,
+        base_url: window.location.origin,
+      });
       setSuccessData(res.data);
       setForm({
         client_name: user?.username || "",

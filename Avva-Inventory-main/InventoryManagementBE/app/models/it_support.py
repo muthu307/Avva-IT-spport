@@ -2,6 +2,42 @@ from app import db
 from datetime import datetime
 
 
+class ITDeveloper(db.Model):
+    """
+    IT Support Engineer / Support Team Member Model.
+    Managed by Admin and used to assign IT tickets and track performance.
+    """
+    __tablename__ = 'it_developers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True, index=True)
+    phone = db.Column(db.String(30))
+    email = db.Column(db.String(150))
+    role = db.Column(db.String(100), default='IT Support Engineer')
+    specialization = db.Column(db.String(150), default='Full Stack & IT Support')
+    status = db.Column(db.String(30), default='Active')  # Active, On Leave, Busy, Inactive
+    avatar_color = db.Column(db.String(30), default='#3b82f6')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'phone': self.phone,
+            'email': self.email,
+            'role': self.role,
+            'specialization': self.specialization,
+            'status': self.status,
+            'avatar_color': self.avatar_color,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f'<ITDeveloper {self.name} - {self.role}>'
+
+
 class ITSupportTicket(db.Model):
     """IT Support Ticket Model"""
     __tablename__ = 'it_support_tickets'
@@ -29,15 +65,22 @@ class ITSupportTicket(db.Model):
     status = db.Column(db.String(30), nullable=False, default='Open')
     # Status choices: Open, In Progress, Resolved, Closed
 
+    # Progress tracking (0 - 100%)
+    progress_percentage = db.Column(db.Integer, default=0)
+    developer_notes = db.Column(db.Text)
+
     # Admin fields
     admin_notes = db.Column(db.Text)
     assigned_to = db.Column(db.String(150))        # Developer/team member name
+    assigned_developer_id = db.Column(db.Integer, nullable=True) # Linked developer id
     assigned_to_phone = db.Column(db.String(30))   # Developer phone (for WhatsApp)
     assigned_by = db.Column(db.String(150))        # Admin who made the assignment
     assigned_at = db.Column(db.DateTime)           # When the ticket was assigned
 
-    # WhatsApp notification flag
+    # WhatsApp notification flag & pre-filled message
     whatsapp_notified = db.Column(db.Boolean, default=False)
+    whatsapp_message = db.Column(db.Text, nullable=True)
+    whatsapp_sent_at = db.Column(db.DateTime, nullable=True)
     assignment_whatsapp_sent = db.Column(db.Boolean, default=False)
 
     # Timestamps
@@ -64,12 +107,17 @@ class ITSupportTicket(db.Model):
             'subject': self.subject,
             'description': self.description,
             'status': self.status,
+            'progress_percentage': self.progress_percentage if self.progress_percentage is not None else 0,
+            'developer_notes': self.developer_notes,
             'admin_notes': self.admin_notes,
             'assigned_to': self.assigned_to,
+            'assigned_developer_id': self.assigned_developer_id,
             'assigned_to_phone': self.assigned_to_phone,
             'assigned_by': self.assigned_by,
             'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
             'whatsapp_notified': self.whatsapp_notified,
+            'whatsapp_message': self.whatsapp_message,
+            'whatsapp_sent_at': self.whatsapp_sent_at.isoformat() if self.whatsapp_sent_at else None,
             'assignment_whatsapp_sent': self.assignment_whatsapp_sent,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -105,6 +153,7 @@ class ITSupportWorkLog(db.Model):
     work_start = db.Column(db.DateTime, nullable=False)   # When developer started
     work_end = db.Column(db.DateTime)                     # When they finished (null while in progress)
     actions_taken = db.Column(db.Text, nullable=False)    # Steps / actions performed
+    progress_percentage = db.Column(db.Integer, default=0) # Progress % at time of work log
 
     # Status after this work session
     status_after = db.Column(db.String(30), nullable=False, default='In Progress')
@@ -114,7 +163,7 @@ class ITSupportWorkLog(db.Model):
     resolution_details = db.Column(db.Text)
 
     # Audit
-    logged_by = db.Column(db.String(150))  # Admin who created this log entry
+    logged_by = db.Column(db.String(150))  # Admin or developer who created this log entry
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -129,6 +178,7 @@ class ITSupportWorkLog(db.Model):
             'work_start': self.work_start.isoformat() if self.work_start else None,
             'work_end': self.work_end.isoformat() if self.work_end else None,
             'actions_taken': self.actions_taken,
+            'progress_percentage': self.progress_percentage if self.progress_percentage is not None else 0,
             'status_after': self.status_after,
             'resolution_details': self.resolution_details,
             'logged_by': self.logged_by,
