@@ -268,67 +268,102 @@ def create_developer():
     if existing:
         return jsonify({'error': f"IT Support Engineer '{name}' already exists"}), 409
 
-    dev = ITDeveloper(
-        name=name,
-        phone=data.get('phone', '').strip(),
-        email=data.get('email', '').strip() or f"{name.lower().replace(' ', '')}@avva.com",
-        role=data.get('role', 'IT Support Engineer').strip() or 'IT Support Engineer',
-        specialization=data.get('specialization', 'Full Stack & IT Support').strip(),
-        status=data.get('status', 'Active').strip(),
-        avatar_color=data.get('avatar_color', '#3b82f6'),
-    )
-    db.session.add(dev)
-    db.session.commit()
+    try:
+        dev = ITDeveloper(
+            name=name,
+            phone=data.get('phone', '').strip() if data.get('phone') else '',
+            email=data.get('email', '').strip() if data.get('email') else f"{name.lower().replace(' ', '')}@avva.com",
+            role=data.get('role', 'IT Support Engineer').strip() if data.get('role') else 'IT Support Engineer',
+            specialization=data.get('specialization', 'Full Stack & IT Support').strip() if data.get('specialization') else 'Full Stack & IT Support',
+            status=data.get('status', 'Active').strip() if data.get('status') else 'Active',
+            avatar_color=data.get('avatar_color', '#3b82f6').strip() if data.get('avatar_color') else '#3b82f6',
+        )
+        db.session.add(dev)
+        db.session.commit()
 
-    return jsonify({'message': f"IT Support Engineer '{name}' added successfully", 'developer': dev.to_dict()}), 201
+        return jsonify({
+            'success': True,
+            'message': f"IT Support Engineer '{name}' details saved successfully!",
+            'developer': dev.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f"Failed to save IT Support Engineer: {str(e)}"}), 500
 
 
 @it_support_bp.route('/it-support/developers/<int:dev_id>', methods=['PUT'])
 def update_developer(dev_id):
     """Admin updates IT Support Engineer profile details."""
-    dev = ITDeveloper.query.get_or_404(dev_id)
+    dev = ITDeveloper.query.get(dev_id)
+    if not dev:
+        return jsonify({'error': f"IT Support Engineer with ID {dev_id} not found"}), 404
+
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No data provided'}), 400
 
-    if 'name' in data and data['name'].strip():
-        new_name = data['name'].strip()
-        existing = ITDeveloper.query.filter(ITDeveloper.name.ilike(new_name), ITDeveloper.id != dev_id).first()
-        if existing:
-            return jsonify({'error': f"Another IT Support Engineer named '{new_name}' already exists"}), 409
-        dev.name = new_name
+    try:
+        if 'name' in data and data['name'].strip():
+            new_name = data['name'].strip()
+            existing = ITDeveloper.query.filter(ITDeveloper.name.ilike(new_name), ITDeveloper.id != dev_id).first()
+            if existing:
+                return jsonify({'error': f"Another IT Support Engineer named '{new_name}' already exists"}), 409
+            old_name = dev.name
+            dev.name = new_name
+            # Sync assigned_to in tickets if engineer name changed
+            if old_name != new_name:
+                ITSupportTicket.query.filter(
+                    db.or_(ITSupportTicket.assigned_developer_id == dev.id, ITSupportTicket.assigned_to == old_name)
+                ).update({'assigned_to': new_name})
 
-    if 'phone' in data:
-        dev.phone = data['phone'].strip()
-    if 'email' in data:
-        dev.email = data['email'].strip()
-    if 'role' in data:
-        dev.role = data['role'].strip()
-    if 'specialization' in data:
-        dev.specialization = data['specialization'].strip()
-    if 'status' in data:
-        dev.status = data['status'].strip()
-    if 'avatar_color' in data:
-        dev.avatar_color = data['avatar_color'].strip()
+        if 'phone' in data:
+            dev.phone = data['phone'].strip() if data['phone'] else ''
+            # Sync assigned_to_phone on tickets for this engineer
+            ITSupportTicket.query.filter_by(assigned_developer_id=dev.id).update({'assigned_to_phone': dev.phone})
 
-    dev.updated_at = datetime.utcnow()
-    db.session.commit()
+        if 'email' in data:
+            dev.email = data['email'].strip() if data['email'] else ''
+        if 'role' in data:
+            dev.role = data['role'].strip() if data['role'] else 'IT Support Engineer'
+        if 'specialization' in data:
+            dev.specialization = data['specialization'].strip() if data['specialization'] else ''
+        if 'status' in data:
+            dev.status = data['status'].strip() if data['status'] else 'Active'
+        if 'avatar_color' in data and data['avatar_color']:
+            dev.avatar_color = data['avatar_color'].strip()
 
-    return jsonify({'message': 'IT Support Engineer updated', 'developer': dev.to_dict()}), 200
+        dev.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f"IT Support Engineer '{dev.name}' details saved successfully!",
+            'developer': dev.to_dict()
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f"Failed to save IT Support Engineer: {str(e)}"}), 500
 
 
 @it_support_bp.route('/it-support/developers/<int:dev_id>', methods=['DELETE'])
 def delete_developer(dev_id):
     """Admin removes or deactivates an IT Support Engineer."""
-    dev = ITDeveloper.query.get_or_404(dev_id)
-    name = dev.name
-    # Unassign any active tickets
-    ITSupportTicket.query.filter_by(assigned_developer_id=dev.id).update({
-        'assigned_developer_id': None
-    })
-    db.session.delete(dev)
-    db.session.commit()
-    return jsonify({'message': f"IT Support Engineer '{name}' removed successfully"}), 200
+    dev = ITDeveloper.query.get(dev_id)
+    if not dev:
+        return jsonify({'error': f"IT Support Engineer with ID {dev_id} not found"}), 404
+
+    try:
+        name = dev.name
+        # Unassign any active tickets
+        ITSupportTicket.query.filter_by(assigned_developer_id=dev.id).update({
+            'assigned_developer_id': None
+        })
+        db.session.delete(dev)
+        db.session.commit()
+        return jsonify({'success': True, 'message': f"IT Support Engineer '{name}' removed successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f"Failed to remove IT Support Engineer: {str(e)}"}), 500
 
 
 @it_support_bp.route('/it-support/developers/overview', methods=['GET'])
@@ -536,6 +571,73 @@ def get_ticket(ticket_id):
 
 
 # ─────────────────────────────────────────────
+# DELETE /api/it-support/tickets/<id> — Delete ticket
+# ─────────────────────────────────────────────
+@it_support_bp.route('/it-support/tickets/<int:ticket_id>', methods=['DELETE'])
+def delete_ticket(ticket_id):
+    """Delete a support ticket and its associated work logs."""
+    ticket = ITSupportTicket.query.get(ticket_id)
+    if not ticket:
+        return jsonify({'error': f"Ticket #{ticket_id} not found"}), 404
+
+    try:
+        ticket_number = ticket.ticket_number
+        # Clean up any associated work logs
+        ITSupportWorkLog.query.filter_by(ticket_id=ticket.id).delete()
+
+        db.session.delete(ticket)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f"Ticket {ticket_number} deleted successfully",
+            'ticket_id': ticket_id,
+            'ticket_number': ticket_number,
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f"Failed to delete ticket: {str(e)}"}), 500
+
+
+# ─────────────────────────────────────────────
+# PUT /api/it-support/tickets/<id>/edit — Edit ticket (client)
+# ─────────────────────────────────────────────
+@it_support_bp.route('/it-support/tickets/<int:ticket_id>/edit', methods=['PUT'])
+def edit_ticket_client(ticket_id):
+    """Client or user edits ticket details."""
+    ticket = ITSupportTicket.query.get_or_404(ticket_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    try:
+        if 'client_name' in data and data['client_name'].strip():
+            ticket.client_name = data['client_name'].strip()
+        if 'client_email' in data and data['client_email'].strip():
+            ticket.client_email = data['client_email'].strip()
+        if 'company_name' in data:
+            ticket.company_name = data['company_name'].strip() or None
+        if 'contact_number' in data:
+            ticket.contact_number = data['contact_number'].strip()
+        if 'category' in data and data['category'].strip():
+            ticket.category = data['category'].strip()
+        if 'priority' in data and data['priority'].strip():
+            ticket.priority = data['priority'].strip()
+        if 'subject' in data and data['subject'].strip():
+            ticket.subject = data['subject'].strip()
+        if 'description' in data and data['description'].strip():
+            ticket.description = data['description'].strip()
+
+        ticket.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'success': True, 'message': 'Ticket updated successfully', 'ticket': ticket.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f"Failed to update ticket: {str(e)}"}), 500
+
+
+# ─────────────────────────────────────────────
 # GET /api/it-support/tickets/by-number/<ticket_number>
 # ─────────────────────────────────────────────
 @it_support_bp.route('/it-support/tickets/by-number/<ticket_number>', methods=['GET'])
@@ -636,10 +738,22 @@ def update_ticket(ticket_id):
     if 'priority' in data:
         ticket.priority = data['priority']
 
+    if 'subject' in data and data['subject'].strip():
+        ticket.subject = data['subject'].strip()
+
+    if 'description' in data and data['description'].strip():
+        ticket.description = data['description'].strip()
+
+    if 'category' in data and data['category'].strip():
+        ticket.category = data['category'].strip()
+
+    if 'contact_number' in data:
+        ticket.contact_number = data['contact_number'].strip()
+
     ticket.updated_at = datetime.utcnow()
     db.session.commit()
 
-    return jsonify({'message': 'Ticket updated', 'ticket': ticket.to_dict()}), 200
+    return jsonify({'success': True, 'message': 'Ticket updated successfully', 'ticket': ticket.to_dict()}), 200
 
 
 # ─────────────────────────────────────────────

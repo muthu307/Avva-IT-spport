@@ -10,6 +10,7 @@ import {
   FaSave,
   FaClipboardList,
   FaExclamationCircle,
+  FaExclamationTriangle,
   FaChevronLeft,
   FaChevronRight,
   FaWhatsapp,
@@ -25,6 +26,9 @@ import {
   FaExternalLinkAlt,
   FaInfoCircle,
   FaCheck,
+  FaTh,
+  FaList,
+  FaEye,
 } from "react-icons/fa";
 import api from "../utils/api";
 import { StatusBadge, PriorityBadge } from "./ITSupport";
@@ -108,6 +112,12 @@ const ITSupportAdmin = () => {
   const [pages, setPages] = useState(1);
   const PER_PAGE = 15;
 
+  // Ticket view mode (List vs Grid) & Ticket Deletion state
+  const [ticketViewMode, setTicketViewMode] = useState("list"); // "list" | "grid"
+  const [deleteTicketTarget, setDeleteTicketTarget] = useState(null);
+  const [deletingTicket, setDeletingTicket] = useState(false);
+  const [viewingTicket, setViewingTicket] = useState(null);
+
   // Detail panel edit state
   const [editStatus, setEditStatus] = useState("");
   const [editNotes, setEditNotes] = useState("");
@@ -146,6 +156,8 @@ const ITSupportAdmin = () => {
     avatar_color: "#3b82f6",
   });
   const [devSubmitting, setDevSubmitting] = useState(false);
+  const [devSuccessMsg, setDevSuccessMsg] = useState("");
+  const [devModalError, setDevModalError] = useState("");
 
   // ── Fetch Tickets ───────────────────────────────────────────────────────────
   const fetchTickets = useCallback(async () => {
@@ -391,6 +403,34 @@ const ITSupportAdmin = () => {
     setShowAssignModal(false);
   };
 
+  // ── Ticket Deletion ────────────────────────────────────────────────────────
+  const handleDeleteTicket = (ticket) => {
+    if (!ticket) return;
+    setDeleteTicketTarget(ticket);
+  };
+
+  const confirmDeleteTicket = async () => {
+    if (!deleteTicketTarget) return;
+    setDeletingTicket(true);
+    try {
+      await api.delete(`/it-support/tickets/${deleteTicketTarget.id}`);
+      setTickets((prev) => prev.filter((t) => t.id !== deleteTicketTarget.id));
+      setTotal((prev) => Math.max(0, prev - 1));
+      if (selected?.id === deleteTicketTarget.id) {
+        setSelected(null);
+      }
+      setDevSuccessMsg(`Ticket ${deleteTicketTarget.ticket_number} deleted successfully!`);
+      setTimeout(() => setDevSuccessMsg(""), 5000);
+      setDeleteTicketTarget(null);
+      fetchStats();
+      if (activeTab === "workload") fetchDevelopersOverview();
+    } catch (err) {
+      alert(err?.response?.data?.error || "Failed to delete ticket. Please try again.");
+    } finally {
+      setDeletingTicket(false);
+    }
+  };
+
   const handleUpdate = async () => {
     if (!selected) return;
     setUpdating(true);
@@ -496,6 +536,7 @@ const ITSupportAdmin = () => {
   const handleOpenAddDevModal = () => {
     setDevFormMode("add");
     setEditingDevId(null);
+    setDevModalError("");
     setDevFormData({
       name: "",
       phone: "",
@@ -511,8 +552,9 @@ const ITSupportAdmin = () => {
   const handleOpenEditDevModal = (dev) => {
     setDevFormMode("edit");
     setEditingDevId(dev.id);
+    setDevModalError("");
     setDevFormData({
-      name: dev.name,
+      name: dev.name || "",
       phone: dev.phone || "",
       email: dev.email || "",
       role: dev.role || "IT Support Engineer",
@@ -525,22 +567,46 @@ const ITSupportAdmin = () => {
 
   const handleSaveDeveloper = async (e) => {
     e.preventDefault();
-    if (!devFormData.name.trim()) {
-      alert("IT Support Engineer name is required.");
+    setDevModalError("");
+    const trimmedName = (devFormData.name || "").trim();
+    if (!trimmedName) {
+      setDevModalError("IT Support Engineer name is required.");
       return;
     }
     setDevSubmitting(true);
     try {
+      const payload = {
+        name: trimmedName,
+        phone: (devFormData.phone || "").trim(),
+        email: (devFormData.email || "").trim(),
+        role: (devFormData.role || "IT Support Engineer").trim(),
+        specialization: (devFormData.specialization || "").trim(),
+        status: devFormData.status || "Active",
+        avatar_color: devFormData.avatar_color || "#3b82f6",
+      };
+
+      let res;
       if (devFormMode === "add") {
-        await api.post("/it-support/developers", devFormData);
+        res = await api.post("/it-support/developers", payload);
       } else {
-        await api.put(`/it-support/developers/${editingDevId}`, devFormData);
+        res = await api.put(`/it-support/developers/${editingDevId}`, payload);
       }
+
+      const successMsgText = res?.data?.message || 
+        (devFormMode === "add" 
+          ? `IT Support Engineer '${trimmedName}' added successfully!` 
+          : `IT Support Engineer '${trimmedName}' details saved successfully!`);
+
       setShowDevModal(false);
-      fetchDevelopers();
-      if (activeTab === "workload") fetchDevelopersOverview();
+      setDevSuccessMsg(successMsgText);
+      setTimeout(() => setDevSuccessMsg(""), 5000);
+
+      await fetchDevelopers();
+      if (activeTab === "workload") await fetchDevelopersOverview();
     } catch (err) {
-      alert(err?.response?.data?.error || "Failed to save IT Support Engineer.");
+      const errMsg = err?.response?.data?.error || "Failed to save IT Support Engineer details.";
+      setDevModalError(errMsg);
+      alert(errMsg);
     } finally {
       setDevSubmitting(false);
     }
@@ -753,10 +819,61 @@ const ITSupportAdmin = () => {
       borderRadius: "6px",
       transition: "width 0.4s ease",
     }),
+    pageBtn: (disabled) => ({
+      background: disabled ? "rgba(255, 255, 255, 0.03)" : "rgba(255, 255, 255, 0.06)",
+      border: "1px solid rgba(255, 255, 255, 0.1)",
+      borderRadius: "8px",
+      padding: "8px 12px",
+      color: disabled ? "#475569" : "#e2e8f0",
+      cursor: disabled ? "not-allowed" : "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: "12px",
+      transition: "all 0.2s ease",
+    }),
   };
 
   return (
     <div style={s.page}>
+
+      {/* ── Global Floating Success Toast ── */}
+      {devSuccessMsg && (
+        <div
+          style={{
+            position: "fixed",
+            top: "90px",
+            right: "24px",
+            zIndex: 9999,
+            background: "linear-gradient(135deg, #059669 0%, #10b981 100%)",
+            color: "#ffffff",
+            borderRadius: "12px",
+            padding: "14px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            boxShadow: "0 10px 30px rgba(16, 185, 129, 0.4)",
+            fontWeight: "700",
+            fontSize: "14px",
+          }}
+        >
+          <FaCheckCircle style={{ fontSize: "18px" }} />
+          <span>{devSuccessMsg}</span>
+          <button
+            onClick={() => setDevSuccessMsg("")}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#ffffff",
+              cursor: "pointer",
+              fontSize: "14px",
+              marginLeft: "8px",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ── Page Header ── */}
       <div style={s.header}>
@@ -862,7 +979,7 @@ const ITSupportAdmin = () => {
           TAB 1: TICKETS MANAGEMENT
       ═══════════════════════════════════════════════════════════════════════ */}
       {activeTab === "tickets" && (
-        <>
+        <div key="tab-content-tickets">
           {/* Toolbar */}
           <div style={s.toolbar}>
             <div style={s.searchBox}>
@@ -949,25 +1066,72 @@ const ITSupportAdmin = () => {
             )}
           </div>
 
-          {/* Table */}
+          {/* View Mode Toggle Header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+            <div style={{ color: "#94a3b8", fontSize: "14px", fontWeight: "600" }}>
+              Support Tickets ({total})
+            </div>
+            <div style={{ display: "flex", background: "rgba(255, 255, 255, 0.05)", borderRadius: "8px", padding: "3px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+              <button
+                type="button"
+                onClick={() => setTicketViewMode("list")}
+                style={{
+                  background: ticketViewMode === "list" ? "rgba(56, 189, 248, 0.2)" : "transparent",
+                  border: "none",
+                  color: ticketViewMode === "list" ? "#38bdf8" : "#94a3b8",
+                  borderRadius: "6px",
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <FaList /> List View
+              </button>
+              <button
+                type="button"
+                onClick={() => setTicketViewMode("grid")}
+                style={{
+                  background: ticketViewMode === "grid" ? "rgba(56, 189, 248, 0.2)" : "transparent",
+                  border: "none",
+                  color: ticketViewMode === "grid" ? "#38bdf8" : "#94a3b8",
+                  borderRadius: "6px",
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <FaTh /> Grid View
+              </button>
+            </div>
+          </div>
+
+          {/* Table / Grid Content */}
           <div style={s.tableCard}>
             {loading ? (
-              <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>
+              <div key="tickets-loading" style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>
                 <FaSpinner style={{ fontSize: "28px", animation: "spin 1s linear infinite", marginBottom: "12px", color: "#38bdf8" }} />
                 <div>Loading tickets...</div>
               </div>
             ) : tickets.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "80px 20px" }}>
+              <div key="tickets-empty" style={{ textAlign: "center", padding: "80px 20px" }}>
                 <FaClipboardList style={{ fontSize: "44px", color: "#475569", marginBottom: "14px" }} />
                 <div style={{ color: "#94a3b8", fontSize: "16px", fontWeight: "600" }}>No tickets found</div>
               </div>
-            ) : (
-              <>
+            ) : ticketViewMode === "list" ? (
+              <div key="tickets-list-view">
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr>
-                        {["Ticket #", "Client", "Category", "Priority", "Subject", "Status", "Work Progress", "Assigned Dev", "Date", "WhatsApp Notification"].map((h) => (
+                        {["Ticket #", "Client", "Category", "Priority", "Subject", "Status", "Work Progress", "Assigned Dev", "Date", "WhatsApp Notification", "Actions"].map((h) => (
                           <th key={h} style={s.th}>{h}</th>
                         ))}
                       </tr>
@@ -1080,6 +1244,72 @@ const ITSupportAdmin = () => {
                                 {t.whatsapp_notified ? "Re-send WhatsApp" : "Send WhatsApp Notification"}
                               </button>
                             </td>
+
+                            {/* Actions Column (View, Edit & Delete Options) */}
+                            <td style={{ ...s.td, whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                                <button
+                                  onClick={() => setViewingTicket(t)}
+                                  title="View Ticket"
+                                  style={{
+                                    background: "rgba(139, 92, 246, 0.15)",
+                                    border: "1px solid rgba(139, 92, 246, 0.3)",
+                                    color: "#a78bfa",
+                                    borderRadius: "8px",
+                                    padding: "7px 12px",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    fontWeight: "600",
+                                    transition: "all 0.2s ease",
+                                  }}
+                                >
+                                  <FaEye /> View
+                                </button>
+                                <button
+                                  onClick={() => openDetail(t)}
+                                  title="Edit Ticket"
+                                  style={{
+                                    background: "rgba(56, 189, 248, 0.15)",
+                                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                                    color: "#38bdf8",
+                                    borderRadius: "8px",
+                                    padding: "7px 12px",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    fontWeight: "600",
+                                    transition: "all 0.2s ease",
+                                  }}
+                                >
+                                  <FaEdit /> Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteTicket(t)}
+                                  title="Delete Ticket"
+                                  style={{
+                                    background: "rgba(239, 68, 68, 0.15)",
+                                    border: "1px solid rgba(239, 68, 68, 0.3)",
+                                    color: "#f87171",
+                                    borderRadius: "8px",
+                                    padding: "7px 12px",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    fontWeight: "600",
+                                    transition: "all 0.2s ease",
+                                  }}
+                                >
+                                  <FaTrashAlt /> Delete
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1090,53 +1320,231 @@ const ITSupportAdmin = () => {
                 {/* Pagination */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                   <span style={{ color: "#64748b", fontSize: "13px" }}>
-                    Showing {tickets.length} of {total} tickets
+                    {`Showing ${tickets.length} of ${total} tickets`}
                   </span>
-                  <div style={{ display: "flex", gap: "8px" }}>
+                  <div style={{ display: "flex", gap: "6px" }}>
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      style={{
-                        background: page === 1 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.08)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: "8px",
-                        padding: "6px 12px",
-                        color: page === 1 ? "#475569" : "#ffffff",
-                        cursor: page === 1 ? "not-allowed" : "pointer",
-                      }}
+                      disabled={page <= 1}
+                      style={s.pageBtn(page <= 1)}
                     >
                       <FaChevronLeft />
                     </button>
-                    <span style={{ padding: "6px 14px", color: "#38bdf8", fontSize: "13px", background: "rgba(56, 189, 248, 0.1)", borderRadius: "8px" }}>
-                      {page} / {pages}
+                    <span style={{ color: "#94a3b8", fontSize: "13px", padding: "8px 12px" }}>
+                      {`Page ${page} of ${pages}`}
                     </span>
                     <button
                       onClick={() => setPage((p) => Math.min(pages, p + 1))}
-                      disabled={page === pages}
-                      style={{
-                        background: page === pages ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.08)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: "8px",
-                        padding: "6px 12px",
-                        color: page === pages ? "#475569" : "#ffffff",
-                        cursor: page === pages ? "not-allowed" : "pointer",
-                      }}
+                      disabled={page >= pages}
+                      style={s.pageBtn(page >= pages)}
                     >
                       <FaChevronRight />
                     </button>
                   </div>
                 </div>
-              </>
+              </div>
+            ) : (
+              /* ── Grid View ── */
+              <div key="tickets-grid-view" style={{ padding: "20px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))", gap: "16px" }}>
+                  {tickets.map((t) => {
+                    const pct = t.progress_percentage || 0;
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => openDetail(t)}
+                        style={{
+                          background: selected?.id === t.id ? "rgba(56, 189, 248, 0.08)" : "rgba(30, 41, 59, 0.5)",
+                          border: selected?.id === t.id ? "1px solid rgba(56, 189, 248, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
+                          borderRadius: "14px",
+                          padding: "18px",
+                          cursor: "pointer",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "12px",
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <span style={{ fontSize: "14px", fontWeight: "800", color: "#38bdf8", letterSpacing: "0.5px" }}>
+                              {t.ticket_number}
+                            </span>
+                            <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
+                              {t.category}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <PriorityBadge priority={t.priority} />
+                            <StatusBadge status={t.status} />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontSize: "15px", fontWeight: "700", color: "#ffffff", marginBottom: "4px" }}>
+                            {t.subject}
+                          </div>
+                          <div style={{ fontSize: "12px", color: "#94a3b8", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: "1.4" }}>
+                            {t.description}
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: "12px", color: "#cbd5e1", background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "8px" }}>
+                          <span style={{ color: "#ffffff", fontWeight: "600" }}>{t.client_name}</span> ({t.client_email})
+                        </div>
+
+                        {/* Progress */}
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase" }}>Work Progress</span>
+                            <span style={{ fontSize: "12px", fontWeight: "800", color: getProgressColor(pct) }}>{pct}%</span>
+                          </div>
+                          <div style={s.progressBarBg}>
+                            <div style={s.progressBarFill(pct)} />
+                          </div>
+                        </div>
+
+                        {/* Assigned Engineer info */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", color: "#94a3b8" }}>
+                          <span>Assigned: <strong style={{ color: t.assigned_to ? "#ffffff" : "#64748b" }}>{t.assigned_to || "Unassigned"}</strong></span>
+                          <span>{fmtDate(t.created_at)}</span>
+                        </div>
+
+                        {/* Card Actions (WhatsApp + Delete) */}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            paddingTop: "12px",
+                            borderTop: "1px solid rgba(255, 255, 255, 0.06)",
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => openWhatsAppModal(t)}
+                            style={{
+                              flex: 1,
+                              background: t.whatsapp_notified ? "rgba(37, 211, 102, 0.12)" : "linear-gradient(135deg, #25d366 0%, #128c7e 100%)",
+                              border: t.whatsapp_notified ? "1px solid rgba(37, 211, 102, 0.35)" : "none",
+                              color: t.whatsapp_notified ? "#25d366" : "#ffffff",
+                              padding: "8px 12px",
+                              borderRadius: "8px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "6px",
+                            }}
+                          >
+                            <FaWhatsapp /> {t.whatsapp_notified ? "WhatsApp" : "Notify WhatsApp"}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewingTicket(t);
+                            }}
+                            title="View Ticket"
+                            style={{
+                              background: "rgba(139, 92, 246, 0.15)",
+                              border: "1px solid rgba(139, 92, 246, 0.3)",
+                              color: "#a78bfa",
+                              borderRadius: "8px",
+                              padding: "8px 14px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <FaEye /> View
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDetail(t);
+                            }}
+                            title="Edit Ticket"
+                            style={{
+                              background: "rgba(56, 189, 248, 0.15)",
+                              border: "1px solid rgba(56, 189, 248, 0.3)",
+                              color: "#38bdf8",
+                              borderRadius: "8px",
+                              padding: "8px 14px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <FaEdit /> Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTicket(t)}
+                            title="Delete Ticket"
+                            style={{
+                              background: "rgba(239, 68, 68, 0.15)",
+                              border: "1px solid rgba(239, 68, 68, 0.3)",
+                              color: "#f87171",
+                              borderRadius: "8px",
+                              padding: "8px 14px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <FaTrashAlt /> Delete
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Grid Pagination */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 0 0", marginTop: "16px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                  <span style={{ color: "#64748b", fontSize: "13px" }}>
+                    {`Showing ${tickets.length} of ${total} tickets`}
+                  </span>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                      style={s.pageBtn(page <= 1)}
+                    >
+                      <FaChevronLeft />
+                    </button>
+                    <span style={{ color: "#94a3b8", fontSize: "13px", padding: "8px 12px" }}>
+                      {`Page ${page} of ${pages}`}
+                    </span>
+                    <button
+                      onClick={() => setPage((p) => Math.min(pages, p + 1))}
+                      disabled={page >= pages}
+                      style={s.pageBtn(page >= pages)}
+                    >
+                      <FaChevronRight />
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
-        </>
+        </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
           TAB 2: IT SUPPORT ENGINEER PROGRESS & WORKLOAD TRACKER
       ═══════════════════════════════════════════════════════════════════════ */}
       {activeTab === "workload" && (
-        <div>
+        <div key="tab-content-workload">
           {overviewLoading ? (
             <div style={{ textAlign: "center", padding: "80px", color: "#64748b" }}>
               <FaSpinner style={{ fontSize: "32px", animation: "spin 1s linear infinite", marginBottom: "12px", color: "#38bdf8" }} />
@@ -1382,7 +1790,43 @@ const ITSupportAdmin = () => {
           TAB 3: MANAGE DEVELOPERS
       ═══════════════════════════════════════════════════════════════════════ */}
       {activeTab === "developers" && (
-        <div>
+        <div key="tab-content-developers">
+          {/* Success Notification Banner */}
+          {devSuccessMsg && (
+            <div
+              style={{
+                marginBottom: "20px",
+                background: "linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.25))",
+                border: "1px solid #10b981",
+                borderRadius: "12px",
+                padding: "14px 20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                color: "#ecfdf5",
+                boxShadow: "0 4px 20px rgba(16, 185, 129, 0.25)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "14px", fontWeight: "600" }}>
+                <FaCheckCircle style={{ color: "#10b981", fontSize: "20px" }} />
+                <span>{devSuccessMsg}</span>
+              </div>
+              <button
+                onClick={() => setDevSuccessMsg("")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#6ee7b7",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  fontWeight: "bold",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
             <div>
               <div style={{ fontSize: "16px", fontWeight: "700", color: "#ffffff" }}>
@@ -1532,6 +1976,7 @@ const ITSupportAdmin = () => {
       {/* ── Add / Edit Developer Modal ── */}
       {showDevModal && (
         <div
+          key="modal-dev"
           style={{
             position: "fixed",
             inset: 0,
@@ -1560,6 +2005,26 @@ const ITSupportAdmin = () => {
               <FaUserPlus style={{ color: "#38bdf8" }} />
               {devFormMode === "add" ? "Add IT Support Engineer" : "Edit IT Support Engineer Profile"}
             </div>
+
+            {devModalError && (
+              <div
+                style={{
+                  marginBottom: "14px",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  border: "1px solid rgba(239, 68, 68, 0.35)",
+                  borderRadius: "10px",
+                  padding: "10px 14px",
+                  color: "#f87171",
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <FaExclamationTriangle />
+                <span>{devModalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveDeveloper} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div>
@@ -1669,9 +2134,16 @@ const ITSupportAdmin = () => {
                     color: "#ffffff",
                     fontWeight: "700",
                     cursor: devSubmitting ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
                   }}
                 >
-                  {devSubmitting ? "Saving..." : devFormMode === "add" ? "Add IT Support Engineer" : "Save Changes"}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                    {devSubmitting && <FaSpinner style={{ animation: "spin 1s linear infinite" }} />}
+                    <span>{devSubmitting ? "Saving..." : devFormMode === "add" ? "Add IT Support Engineer" : "Save Changes"}</span>
+                  </span>
                 </button>
               </div>
             </form>
@@ -1682,6 +2154,7 @@ const ITSupportAdmin = () => {
       {/* ── Assign Ticket Modal ── */}
       {showAssignModal && selected && (
         <div
+          key="modal-assign"
           style={{
             position: "fixed",
             inset: 0,
@@ -1786,15 +2259,14 @@ const ITSupportAdmin = () => {
                   cursor: (!selectedMemberId || assigning) ? "not-allowed" : "pointer",
                 }}
               >
-                {assigning ? (
-                  <>
-                    <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> Assigning...
-                  </>
-                ) : (
-                  <>
-                    <FaPaperPlane /> Assign &amp; Notify WhatsApp Group
-                  </>
-                )}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                  {assigning ? (
+                    <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+                  ) : (
+                    <FaPaperPlane />
+                  )}
+                  <span>{assigning ? "Assigning..." : "Assign & Notify WhatsApp Group"}</span>
+                </span>
               </button>
             </div>
           </div>
@@ -1804,6 +2276,7 @@ const ITSupportAdmin = () => {
       {/* ── Assignment WhatsApp Notification Modal (dispatched to IT Support WhatsApp Group) ── */}
       {showAssignNotificationModal && assignResult && (
         <div
+          key="modal-assign-notification"
           style={{
             position: "fixed",
             inset: 0,
@@ -2058,7 +2531,7 @@ const ITSupportAdmin = () => {
 
       {/* ── Detail Side Panel ── */}
       {selected && (
-        <>
+        <div key="detail-side-panel-wrapper">
           <div
             onClick={closeDetail}
             style={{
@@ -2391,17 +2864,261 @@ const ITSupportAdmin = () => {
                   gap: "8px",
                 }}
               >
-                {updating ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaSave />}
-                Save Changes
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                  {updating ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaSave />}
+                  <span>Save Changes</span>
+                </span>
+              </button>
+
+              {/* Delete Ticket in Detail View */}
+              <button
+                onClick={() => handleDeleteTicket(selected)}
+                style={{
+                  background: "rgba(239, 68, 68, 0.15)",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  borderRadius: "10px",
+                  padding: "10px 16px",
+                  color: "#f87171",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                }}
+              >
+                <FaTrashAlt /> Delete Ticket
               </button>
             </div>
           </div>
-        </>
+        </div>
+      )}
+
+      {/* ── Ticket Delete Confirmation Modal ── */}
+      {deleteTicketTarget && (
+        <div
+          key="modal-delete-ticket"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1200,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setDeleteTicketTarget(null); }}
+        >
+          <div
+            style={{
+              background: "#1e293b",
+              border: "1px solid rgba(239, 68, 68, 0.35)",
+              borderRadius: "16px",
+              padding: "24px",
+              maxWidth: "440px",
+              width: "100%",
+              boxShadow: "0 25px 60px rgba(0, 0, 0, 0.8)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#f87171", fontSize: "18px", fontWeight: "800", marginBottom: "12px" }}>
+              <FaTrashAlt /> Delete Support Ticket
+            </div>
+            <p style={{ color: "#cbd5e1", fontSize: "14px", lineHeight: "1.6", margin: "0 0 20px" }}>
+              Are you sure you want to permanently delete ticket <strong style={{ color: "#38bdf8" }}>{deleteTicketTarget.ticket_number}</strong> ({deleteTicketTarget.subject})? This will also remove any related work logs and cannot be undone.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setDeleteTicketTarget(null)}
+                disabled={deletingTicket}
+                style={{
+                  background: "rgba(255, 255, 255, 0.08)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "10px 16px",
+                  color: "#94a3b8",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                  fontSize: "13px",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTicket}
+                disabled={deletingTicket}
+                style={{
+                  background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "10px 18px",
+                  color: "#ffffff",
+                  cursor: deletingTicket ? "not-allowed" : "pointer",
+                  fontWeight: "700",
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  {deletingTicket ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaTrashAlt />}
+                  <span>{deletingTicket ? "Deleting..." : "Confirm Delete"}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── View Ticket Details Modal ── */}
+      {viewingTicket && (
+        <div
+          key="modal-view-ticket"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1250,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setViewingTicket(null);
+          }}
+        >
+          <div
+            style={{
+              background: "#1e293b",
+              border: "1px solid rgba(139, 92, 246, 0.35)",
+              borderRadius: "16px",
+              padding: "24px",
+              maxWidth: "680px",
+              width: "100%",
+              boxShadow: "0 25px 60px rgba(0, 0, 0, 0.8)",
+              maxHeight: "85vh",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "20px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#a78bfa", fontSize: "18px", fontWeight: "700" }}>
+                <FaEye /> View Ticket — {viewingTicket.ticket_number}
+              </div>
+              <button
+                onClick={() => setViewingTicket(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#94a3b8",
+                  cursor: "pointer",
+                  fontSize: "18px",
+                }}
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+              {[
+                ["Ticket Number", viewingTicket.ticket_number],
+                ["Subject", viewingTicket.subject],
+                ["Category", viewingTicket.category],
+                ["Priority", viewingTicket.priority],
+                ["Status", viewingTicket.status],
+                ["Company", viewingTicket.company_name || "—"],
+                ["Client Name", viewingTicket.client_name || "—"],
+                ["Client Email", viewingTicket.client_email || "—"],
+                ["Contact Number", viewingTicket.contact_number || "—"],
+                ["Created Date", new Date(viewingTicket.created_at).toLocaleString()],
+                ["Assigned To", viewingTicket.assigned_to || "Not Assigned"],
+                ["Assignment Date & Time", viewingTicket.assigned_at ? new Date(viewingTicket.assigned_at).toLocaleString() : "—"],
+                ["Progress", `${viewingTicket.progress_percentage || 0}%`],
+                ["WhatsApp Notified", viewingTicket.whatsapp_notified ? "Yes (Notified)" : "No"],
+              ].map(([label, value]) => (
+                <div key={label} style={{ background: "rgba(255,255,255,0.03)", borderRadius: "8px", padding: "10px 14px" }}>
+                  <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>{label}</div>
+                  <div style={{ color: "#e2e8f0", fontSize: "14px", fontWeight: "500" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "8px", padding: "14px", marginBottom: "12px" }}>
+              <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Description</div>
+              <div style={{ color: "#e2e8f0", fontSize: "14px", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
+                {viewingTicket.description || "—"}
+              </div>
+            </div>
+
+            {viewingTicket.admin_notes && (
+              <div style={{ background: "rgba(34,197,94,0.06)", borderRadius: "8px", padding: "14px", border: "1px solid rgba(34,197,94,0.15)", marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", color: "#22c55e", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Admin Notes</div>
+                <div style={{ color: "#e2e8f0", fontSize: "14px", lineHeight: "1.6" }}>{viewingTicket.admin_notes}</div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "16px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const t = viewingTicket;
+                  setViewingTicket(null);
+                  openDetail(t);
+                }}
+                style={{
+                  background: "rgba(56, 189, 248, 0.15)",
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                  borderRadius: "8px",
+                  padding: "10px 18px",
+                  color: "#38bdf8",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <FaEdit /> Edit Ticket
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewingTicket(null)}
+                style={{
+                  background: "rgba(255,255,255,0.08)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "10px 18px",
+                  color: "#94a3b8",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                  fontSize: "13px",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── WhatsApp Notification Modal ── */}
       {showWhatsAppModal && whatsAppModalTicket && (
         <div
+          key="modal-whatsapp"
           style={{
             position: "fixed",
             inset: 0,
@@ -2551,7 +3268,10 @@ const ITSupportAdmin = () => {
                       gap: "5px",
                     }}
                   >
-                    {copyFeedback ? <><FaCheck /> Copied to Clipboard!</> : <><FaCopy /> Copy Message</>}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      {copyFeedback ? <FaCheck /> : <FaCopy />}
+                      <span>{copyFeedback ? "Copied to Clipboard!" : "Copy Message"}</span>
+                    </span>
                   </button>
                 </div>
 
